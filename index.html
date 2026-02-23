@@ -5,108 +5,32 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>漢字書き順アニメーター</title>
     <style>
-        /* 全体のレイアウト調整 */
         body { 
             font-family: 'Helvetica Neue', Arial, "Hiragino Kaku Gothic ProN", "Hiragino Sans", sans-serif; 
-            display: flex; 
-            flex-direction: column; 
-            align-items: center; 
-            background: #f4f7f6; 
-            color: #333; 
-            margin: 0;
-            padding: 20px;
-            min-height: 100vh;
+            display: flex; flex-direction: column; align-items: center; 
+            background: #f4f7f6; color: #333; margin: 0; padding: 20px; min-height: 100vh;
         }
-
         .container { 
-            background: white; 
-            padding: 20px; 
-            border-radius: 20px; 
-            box-shadow: 0 10px 25px rgba(0,0,0,0.1); 
-            text-align: center; 
-            width: 100%;
-            max-width: 500px; /* PCでの最大幅を制限 */
-            box-sizing: border-box;
+            background: white; padding: 20px; border-radius: 20px; 
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1); text-align: center; 
+            width: 100%; max-width: 500px; box-sizing: border-box;
         }
-
-        h2 { font-size: 1.5rem; margin-top: 0; color: #2c3e50; }
-
-        .controls { 
-            margin-bottom: 20px; 
-            display: flex; 
-            justify-content: center; 
-            gap: 10px; 
-        }
-
-        input { 
-            font-size: 1.2rem; 
-            padding: 10px; 
-            width: 60px; 
-            text-align: center; 
-            border: 2px solid #e0e0e0; 
-            border-radius: 12px; 
-            outline: none;
-        }
-
-        button { 
-            font-size: 1rem; 
-            padding: 10px 20px; 
-            cursor: pointer; 
-            background: #3498db; 
-            color: white; 
-            border: none; 
-            border-radius: 12px; 
-            font-weight: bold; 
-            transition: 0.3s;
-        }
-
-        /* SVGコンテナを画面幅に合わせて可変にする */
+        .controls { margin-bottom: 20px; display: flex; justify-content: center; gap: 10px; }
+        input { font-size: 1.2rem; padding: 10px; width: 60px; text-align: center; border: 2px solid #e0e0e0; border-radius: 12px; outline: none; }
+        button { font-size: 1rem; padding: 10px 20px; cursor: pointer; background: #3498db; color: white; border: none; border-radius: 12px; font-weight: bold; }
+        
         #svg-container { 
-            position: relative; 
-            width: 100%; /* コンテナいっぱいに広げる */
-            aspect-ratio: 1 / 1; /* 正方形を維持 */
-            background: #fff; 
-            border: 2px solid #eee; 
-            border-radius: 15px; 
-            margin: 0 auto; 
-            overflow: hidden;
+            position: relative; width: 100%; aspect-ratio: 1 / 1; 
+            background: #fff; border: 2px solid #eee; border-radius: 15px; 
+            margin: 0 auto; overflow: hidden;
             background-image: linear-gradient(#f9f9f9 2px, transparent 2px), linear-gradient(90deg, #f9f9f9 2px, transparent 2px);
             background-size: 50% 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            display: flex; align-items: center; justify-content: center;
         }
-        
-        /* 内部のSVGをコンテナの大きさにフィットさせる */
-        svg { 
-            width: 90%; 
-            height: 90%; 
-        }
-
-        .stroke { 
-            fill: none; 
-            stroke: #2c3e50; 
-            stroke-width: 3; 
-            stroke-linecap: round; 
-            stroke-linejoin: round; 
-        }
-
-        .order-number { 
-            font-size: 6px; 
-            fill: #e74c3c; 
-            font-weight: bold; 
-            opacity: 0; 
-            transition: opacity 0.3s; 
-        }
-
+        svg { width: 90%; height: 90%; }
+        .stroke { fill: none; stroke: #2c3e50; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+        .order-number { font-size: 6px; fill: #e74c3c; font-weight: bold; opacity: 0; transition: opacity 0.3s; }
         .active-number { opacity: 1; }
-
-        /* モバイル向けの微調整 */
-        @media (max-width: 480px) {
-            h2 { font-size: 1.2rem; }
-            .container { padding: 15px; }
-            button { padding: 10px 15px; font-size: 0.9rem; }
-        }
     </style>
 </head>
 <body>
@@ -114,8 +38,8 @@
 <div class="container">
     <h2>漢字書き順アニメーター</h2>
     <div class="controls">
-        <input type="text" id="kanjiInput" maxlength="1" value="永" placeholder="漢">
-        <button onclick="startAnimation()">実行</button>
+        <input type="text" id="kanjiInput" maxlength="1" value="永">
+        <button onclick="startNewAnimation()">実行</button>
     </div>
     <div id="svg-container">
         <p style="color: #bbb;">漢字を入力して実行</p>
@@ -123,13 +47,14 @@
 </div>
 
 <script>
-let currentTimer = null;
+let currentAnimationId = 0; // アニメーションの実行回数を管理するID
 
-async function startAnimation() {
+async function startNewAnimation() {
     const kanji = document.getElementById('kanjiInput').value;
     if (!kanji) return;
 
-    if (currentTimer) clearTimeout(currentTimer);
+    // 1. 新しいアニメーションIDを発行（これにより古いループを無効化する）
+    const myId = ++currentAnimationId;
     
     const container = document.getElementById('svg-container');
     container.innerHTML = "<p>読み込み中...</p>";
@@ -146,21 +71,28 @@ async function startAnimation() {
         const pathElements = xmlDoc.querySelectorAll('path');
         const pathsData = Array.from(pathElements).map(p => p.getAttribute('d'));
 
-        animateLoop(pathsData);
+        // 2. IDを渡してアニメーションを開始
+        runAnimationLoop(pathsData, myId);
 
     } catch (e) {
         container.innerHTML = "<p style='color:#e74c3c;'>データなし</p>";
     }
 }
 
-async function animateLoop(pathsData) {
+async function runAnimationLoop(pathsData, myId) {
     const container = document.getElementById('svg-container');
 
     while (true) {
+        // 3. ループの開始時に「自分が最新のIDか」をチェック。違えば終了。
+        if (myId !== currentAnimationId) return;
+
         container.innerHTML = `<svg viewBox="0 0 109 109" id="kanjiSvg"></svg>`;
         const svg = document.getElementById('kanjiSvg');
 
         for (let i = 0; i < pathsData.length; i++) {
+            // 4. 各画を描く前にもIDチェック（途中で切り替えられた場合に対応）
+            if (myId !== currentAnimationId) return;
+
             const d = pathsData[i];
             const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
             path.setAttribute("d", d);
@@ -189,9 +121,10 @@ async function animateLoop(pathsData) {
                 });
             });
         }
-        await new Promise(resolve => {
-            currentTimer = setTimeout(resolve, 2000);
-        });
+        
+        // 5. 完了後の待機中もIDチェック
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        if (myId !== currentAnimationId) return;
     }
 }
 </script>
