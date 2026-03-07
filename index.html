@@ -3,102 +3,199 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>漢字書き順アニメーター</title>
+    <title>漢字書き順・読み方表示</title>
     <style>
+        *, *::before, *::after { box-sizing: border-box; }
+
+        html, body {
+            margin: 0; padding: 0;
+            min-height: 100%;
+        }
+
         body { 
-            font-family: 'Helvetica Neue', Arial, "Hiragino Kaku Gothic ProN", "Hiragino Sans", sans-serif; 
-            display: flex; flex-direction: column; align-items: center; 
-            background: #f4f7f6; color: #333; margin: 0; padding: 20px; min-height: 100vh;
+            font-family: 'Helvetica Neue', Arial, "Hiragino Kaku Gothic ProN", "Hiragino Sans", sans-serif;
+            background: #f4f7f6; color: #333;
+            display: flex; flex-direction: column; align-items: center;
+            padding: 20px 16px 40px; /* 下に余白を確保 */
         }
         .container { 
-            background: white; padding: 20px; border-radius: 20px; 
+            background: white; padding: 25px; border-radius: 20px; 
             box-shadow: 0 10px 25px rgba(0,0,0,0.1); text-align: center; 
-            width: 100%; max-width: 500px; box-sizing: border-box;
+            width: 100%; max-width: 420px;
         }
         .controls { margin-bottom: 20px; display: flex; justify-content: center; gap: 10px; }
-        input { font-size: 1.2rem; padding: 10px; width: 60px; text-align: center; border: 2px solid #e0e0e0; border-radius: 12px; outline: none; }
+        input { font-size: 1.5rem; padding: 10px; width: 70px; text-align: center; border: 2px solid #e0e0e0; border-radius: 12px; outline: none; }
         button { font-size: 1rem; padding: 10px 20px; cursor: pointer; background: #3498db; color: white; border: none; border-radius: 12px; font-weight: bold; }
         
         #svg-container { 
-            position: relative; width: 100%; aspect-ratio: 1 / 1; 
+            position: relative;
+            width: 100%;
+            /* aspect-ratio だけに頼らず、max-height でSVGが大きくなりすぎるのを防ぐ */
+            aspect-ratio: 1 / 1;
+            max-height: min(60vw, 340px); /* 画面の60%か340pxの小さい方 */
             background: #fff; border: 2px solid #eee; border-radius: 15px; 
-            margin: 0 auto; overflow: hidden;
+            margin: 0 auto 16px; overflow: hidden;
             background-image: linear-gradient(#f9f9f9 2px, transparent 2px), linear-gradient(90deg, #f9f9f9 2px, transparent 2px);
             background-size: 50% 50%;
             display: flex; align-items: center; justify-content: center;
         }
-        svg { width: 90%; height: 90%; }
-        .stroke { fill: none; stroke: #2c3e50; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
-        .order-number { font-size: 6px; fill: #e74c3c; font-weight: bold; opacity: 0; transition: opacity 0.3s; }
-        .active-number { opacity: 1; }
+        svg { width: 92%; height: 92%; }
+        
+        .info-panel { 
+            text-align: left; background: #fdfdfd; padding: 12px 15px; 
+            border-radius: 12px; border: 1px solid #eef2f7;
+            /* 読みが長くても折り返す */
+            word-break: break-all;
+        }
+        .info-item { margin-bottom: 8px; font-size: 1rem; line-height: 1.6; border-bottom: 1px dashed #eee; padding-bottom: 8px; }
+        .info-item:last-child { border-bottom: none; margin-bottom: 0; }
+        .label { font-weight: bold; color: #7f8c8d; display: inline-block; min-width: 72px; font-size: 0.85rem; vertical-align: top; }
+        .content { color: #2c3e50; font-size: 0.95rem; }
+
+        .stroke { fill: none; stroke: #2c3e50; stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; }
+        .order-number { font-size: 6px; fill: #e74c3c; font-weight: bold; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h2>漢字書き順アニメーター</h2>
+    <h2 style="margin-top:0; color:#2c3e50;">漢字書き順アニメーター</h2>
     <div class="controls">
-        <input type="text" id="kanjiInput" maxlength="1" value="永">
+        <input type="text" id="kanjiInput" maxlength="1" value="永" placeholder="漢">
         <button onclick="startNewAnimation()">実行</button>
     </div>
+    
     <div id="svg-container">
         <p style="color: #bbb;">漢字を入力して実行</p>
+    </div>
+
+    <div id="info-panel" class="info-panel" style="display:none;">
+        <div class="info-item"><span class="label">音読み</span><span id="on-yomi" class="content"></span></div>
+        <div class="info-item"><span class="label">訓読み</span><span id="kun-yomi" class="content"></span></div>
     </div>
 </div>
 
 <script>
-let currentAnimationId = 0; // アニメーションの実行回数を管理するID
+let currentAnimationId = 0;
 
 async function startNewAnimation() {
     const kanji = document.getElementById('kanjiInput').value;
     if (!kanji) return;
 
-    // 1. 新しいアニメーションIDを発行（これにより古いループを無効化する）
     const myId = ++currentAnimationId;
-    
     const container = document.getElementById('svg-container');
+    const infoPanel = document.getElementById('info-panel');
     container.innerHTML = "<p>読み込み中...</p>";
+    infoPanel.style.display = "none";
 
     const unicode = kanji.charCodeAt(0).toString(16).toLowerCase().padStart(5, '0');
 
     try {
-        const response = await fetch(`https://raw.githubusercontent.com/KanjiVG/kanjivg/master/kanji/${unicode}.svg`);
-        if (!response.ok) throw new Error();
-        const svgText = await response.text();
-        
+        const [svgResponse, infoResponse] = await Promise.all([
+            fetch(`https://raw.githubusercontent.com/KanjiVG/kanjivg/master/kanji/${unicode}.svg`),
+            fetch(`https://kanjiapi.dev/v1/kanji/${encodeURIComponent(kanji)}`)
+        ]);
+
+        if (!svgResponse.ok) throw new Error('SVG not found');
+        const svgText = await svgResponse.text();
+
+        if (infoResponse.ok) {
+            const infoData = await infoResponse.json();
+            document.getElementById('on-yomi').textContent = infoData.on_readings.join('、') || '（なし）';
+            document.getElementById('kun-yomi').textContent = infoData.kun_readings.join('、') || '（なし）';
+            infoPanel.style.display = "block";
+        }
+
         const parser = new DOMParser();
         const xmlDoc = parser.parseFromString(svgText, "image/svg+xml");
         const pathElements = xmlDoc.querySelectorAll('path');
         const pathsData = Array.from(pathElements).map(p => p.getAttribute('d'));
 
-        // 2. IDを渡してアニメーションを開始
         runAnimationLoop(pathsData, myId);
 
     } catch (e) {
-        container.innerHTML = "<p style='color:#e74c3c;'>データなし</p>";
+        container.innerHTML = "<p style='color:#e74c3c;'>データが見つかりませんでした</p>";
     }
+}
+
+// strokeDashoffsetをrequestAnimationFrameで手動アニメーション
+function animatePath(path, length, duration) {
+    return new Promise(resolve => {
+        // transitionを使わず、rAFで直接制御
+        path.style.strokeDasharray = length;
+        path.style.strokeDashoffset = length;
+
+        let startTime = null;
+
+        function step(timestamp) {
+            if (!startTime) startTime = timestamp;
+            const elapsed = timestamp - startTime;
+            const progress = Math.min(elapsed / duration, 1);
+            
+            // easeInOut で滑らかに
+            const eased = progress < 0.5
+                ? 2 * progress * progress
+                : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+
+            path.style.strokeDashoffset = length * (1 - eased);
+
+            if (progress < 1) {
+                requestAnimationFrame(step);
+            } else {
+                path.style.strokeDashoffset = 0;
+                resolve();
+            }
+        }
+
+        requestAnimationFrame(step);
+    });
+}
+
+function wait(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 async function runAnimationLoop(pathsData, myId) {
     const container = document.getElementById('svg-container');
 
+    // 事前にパス長を計算するため、一時SVGをDOMに追加して計測
+    const tempSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    tempSvg.setAttribute("viewBox", "0 0 109 109");
+    tempSvg.style.position = "absolute";
+    tempSvg.style.visibility = "hidden";
+    document.body.appendChild(tempSvg);
+
+    const pathLengths = pathsData.map(d => {
+        const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        p.setAttribute("d", d);
+        tempSvg.appendChild(p);
+        const len = p.getTotalLength();
+        return len;
+    });
+    document.body.removeChild(tempSvg);
+
     while (true) {
-        // 3. ループの開始時に「自分が最新のIDか」をチェック。違えば終了。
         if (myId !== currentAnimationId) return;
 
         container.innerHTML = `<svg viewBox="0 0 109 109" id="kanjiSvg"></svg>`;
         const svg = document.getElementById('kanjiSvg');
 
         for (let i = 0; i < pathsData.length; i++) {
-            // 4. 各画を描く前にもIDチェック（途中で切り替えられた場合に対応）
             if (myId !== currentAnimationId) return;
 
-            const d = pathsData[i];
+            const length = pathLengths[i];
+            const duration = Math.max(600, length * 8); // 速度を適切に調整
+
+            // パス要素を生成し、最初から非表示（dashoffset=length）に設定
             const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-            path.setAttribute("d", d);
+            path.setAttribute("d", pathsData[i]);
             path.setAttribute("class", "stroke");
+            path.style.strokeDasharray = length;
+            path.style.strokeDashoffset = length;
             svg.appendChild(path);
 
+            // 番号ラベル
+            // getTotalLengthは表示SVG内の要素で行う
             const startPoint = path.getPointAtLength(0);
             const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
             text.setAttribute("x", startPoint.x - 4);
@@ -107,23 +204,16 @@ async function runAnimationLoop(pathsData, myId) {
             text.textContent = i + 1;
             svg.appendChild(text);
 
-            const length = path.getTotalLength();
-            path.style.strokeDasharray = length;
-            path.style.strokeDashoffset = length;
+            // 1フレーム待ってからアニメーション開始（レイアウト確定を待つ）
+            await new Promise(r => requestAnimationFrame(r));
+            await animatePath(path, length, duration);
 
-            await new Promise(resolve => {
-                requestAnimationFrame(() => {
-                    text.classList.add('active-number');
-                    const duration = Math.max(800, length * 15);
-                    path.style.transition = `stroke-dashoffset ${duration}ms ease-in-out`;
-                    path.style.strokeDashoffset = "0";
-                    setTimeout(resolve, duration + 200);
-                });
-            });
+            // 次の画へ進む前に少し間を置く
+            await wait(150);
         }
-        
-        // 5. 完了後の待機中もIDチェック
-        await new Promise(resolve => setTimeout(resolve, 2000));
+
+        // 完成した字を確認する時間
+        await wait(3000);
         if (myId !== currentAnimationId) return;
     }
 }
