@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>漢字書き順・読み方表示</title>
+    <title>漢字書き順アニメーター</title>
     <style>
         *, *::before, *::after { box-sizing: border-box; }
 
@@ -24,7 +24,7 @@
             width: 100%; max-width: 420px;
         }
         .controls { margin-bottom: 20px; display: flex; justify-content: center; gap: 10px; }
-        input { font-size: 1.5rem; padding: 10px; width: 70px; text-align: center; border: 2px solid #e0e0e0; border-radius: 12px; outline: none; }
+        input { font-size: 1.5rem; padding: 10px; width: 150px; text-align: center; border: 2px solid #e0e0e0; border-radius: 12px; outline: none; }
         button { font-size: 1rem; padding: 10px 20px; cursor: pointer; background: #3498db; color: white; border: none; border-radius: 12px; font-weight: bold; }
         
         #svg-container { 
@@ -54,33 +54,110 @@
 
         .stroke { fill: none; stroke: #2c3e50; stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; }
         .order-number { font-size: 6px; fill: #e74c3c; font-weight: bold; }
+
+        .source-footer {
+            margin-top: 18px; padding-top: 12px;
+            border-top: 1px solid #eef2f7;
+            font-size: 0.78rem; color: #aaa; text-align: left; line-height: 1.8;
+        }
+        .source-footer a { color: #aaa; text-decoration: underline dotted; }
+        .source-footer a:hover { color: #3498db; }
+
+        .subtitle {
+            font-size: 0.82rem; color: #999; margin: -8px 0 18px;
+            line-height: 1.5;
+        }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h2 style="margin-top:0; color:#2c3e50;">漢字書き順</h2>
+    <h2 style="margin-top:0; color:#2c3e50;">漢字書き順アニメーター</h2>
+    <p class="subtitle">ひらがな・カタカナ・漢字（1〜2文字）の書き順を表示</p>
     <div class="controls">
-        <input type="text" id="kanjiInput" maxlength="1" value="永" placeholder="漢">
+        <input type="text" id="kanjiInput" maxlength="2" value="永" placeholder="ここに入力">
         <button onclick="startNewAnimation()">実行</button>
     </div>
     
     <div id="svg-container">
-        <p style="color: #bbb;">漢字を入力して実行</p>
+        <p style="color: #bbb;">文字を入力して実行</p>
     </div>
 
     <div id="info-panel" class="info-panel" style="display:none;">
         <div class="info-item"><span class="label">音読み</span><span id="on-yomi" class="content"></span></div>
         <div class="info-item"><span class="label">訓読み</span><span id="kun-yomi" class="content"></span></div>
     </div>
+
+    <div class="source-footer">
+        書き順データ：<a href="https://kanjivg.tagaini.net/" target="_blank">KanjiVG</a>（© Ulrich Apel, CC BY-SA 3.0）<br>
+        読みデータ：<a href="https://kanjiapi.dev/" target="_blank">kanjiapi.dev</a>
+    </div>
 </div>
 
 <script>
 let currentAnimationId = 0;
 
+// Unicode取得
+function toUnicode(char) {
+    return char.charCodeAt(0).toString(16).toLowerCase().padStart(5, '0');
+}
+
+// SVGからパスデータを取得
+async function fetchPaths(char) {
+    const unicode = toUnicode(char);
+    const res = await fetch(`https://raw.githubusercontent.com/KanjiVG/kanjivg/master/kanji/${unicode}.svg`);
+    if (!res.ok) throw new Error(`SVG not found: ${char}`);
+    const text = await res.text();
+    const xml = new DOMParser().parseFromString(text, "image/svg+xml");
+    return Array.from(xml.querySelectorAll('path')).map(p => p.getAttribute('d'));
+}
+
+// パス長を事前計測
+function measureLengths(pathsData) {
+    const tempSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    tempSvg.setAttribute("viewBox", "0 0 109 109");
+    tempSvg.style.cssText = "position:absolute;visibility:hidden;pointer-events:none;";
+    document.body.appendChild(tempSvg);
+    const lengths = pathsData.map(d => {
+        const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        p.setAttribute("d", d);
+        tempSvg.appendChild(p);
+        return p.getTotalLength();
+    });
+    document.body.removeChild(tempSvg);
+    return lengths;
+}
+
+// rAF アニメーション（easeInOut）
+function animatePath(path, length, duration) {
+    return new Promise(resolve => {
+        path.style.strokeDasharray = length;
+        path.style.strokeDashoffset = length;
+        let startTime = null;
+        function step(ts) {
+            if (!startTime) startTime = ts;
+            const p = Math.min((ts - startTime) / duration, 1);
+            const e = p < 0.5 ? 2*p*p : 1 - Math.pow(-2*p+2, 2)/2;
+            path.style.strokeDashoffset = length * (1 - e);
+            if (p < 1) requestAnimationFrame(step);
+            else { path.style.strokeDashoffset = 0; resolve(); }
+        }
+        requestAnimationFrame(step);
+    });
+}
+
+function wait(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ---- メイン ----
 async function startNewAnimation() {
-    const kanji = document.getElementById('kanjiInput').value;
-    if (!kanji) return;
+    const input = document.getElementById('kanjiInput').value.trim();
+    if (!input) return;
+
+    // 漢字・ひらがな・カタカナを許可（最大2文字）
+    const chars = [...input].filter(c =>
+        /[\u4e00-\u9fff\u3400-\u4dbf\u3041-\u3096\u30A1-\u30FA]/.test(c)
+    ).slice(0, 2);
+    if (chars.length === 0) return;
 
     const myId = ++currentAnimationId;
     const container = document.getElementById('svg-container');
@@ -88,131 +165,107 @@ async function startNewAnimation() {
     container.innerHTML = "<p>読み込み中...</p>";
     infoPanel.style.display = "none";
 
-    const unicode = kanji.charCodeAt(0).toString(16).toLowerCase().padStart(5, '0');
-
     try {
-        const [svgResponse, infoResponse] = await Promise.all([
-            fetch(`https://raw.githubusercontent.com/KanjiVG/kanjivg/master/kanji/${unicode}.svg`),
-            fetch(`https://kanjiapi.dev/v1/kanji/${encodeURIComponent(kanji)}`)
-        ]);
+        // 全漢字のパスデータを並列取得
+        const allPathsData = await Promise.all(chars.map(fetchPaths));
 
-        if (!svgResponse.ok) throw new Error('SVG not found');
-        const svgText = await svgResponse.text();
-
-        if (infoResponse.ok) {
-            const infoData = await infoResponse.json();
-            document.getElementById('on-yomi').textContent = infoData.on_readings.join('、') || '（なし）';
-            document.getElementById('kun-yomi').textContent = infoData.kun_readings.join('、') || '（なし）';
-            infoPanel.style.display = "block";
-        }
-
-        const parser = new DOMParser();
-        const xmlDoc = parser.parseFromString(svgText, "image/svg+xml");
-        const pathElements = xmlDoc.querySelectorAll('path');
-        const pathsData = Array.from(pathElements).map(p => p.getAttribute('d'));
-
-        runAnimationLoop(pathsData, myId);
-
-    } catch (e) {
-        container.innerHTML = "<p style='color:#e74c3c;'>データが見つかりませんでした</p>";
-    }
-}
-
-// strokeDashoffsetをrequestAnimationFrameで手動アニメーション
-function animatePath(path, length, duration) {
-    return new Promise(resolve => {
-        // transitionを使わず、rAFで直接制御
-        path.style.strokeDasharray = length;
-        path.style.strokeDashoffset = length;
-
-        let startTime = null;
-
-        function step(timestamp) {
-            if (!startTime) startTime = timestamp;
-            const elapsed = timestamp - startTime;
-            const progress = Math.min(elapsed / duration, 1);
-            
-            // easeInOut で滑らかに
-            const eased = progress < 0.5
-                ? 2 * progress * progress
-                : 1 - Math.pow(-2 * progress + 2, 2) / 2;
-
-            path.style.strokeDashoffset = length * (1 - eased);
-
-            if (progress < 1) {
-                requestAnimationFrame(step);
-            } else {
-                path.style.strokeDashoffset = 0;
-                resolve();
+        // 1文字かつ漢字のときだけ読みを表示
+        const isKanji = c => /[\u4e00-\u9fff\u3400-\u4dbf]/.test(c);
+        if (chars.length === 1 && isKanji(chars[0])) {
+            const infoRes = await fetch(`https://kanjiapi.dev/v1/kanji/${encodeURIComponent(chars[0])}`);
+            if (infoRes.ok) {
+                const d = await infoRes.json();
+                document.getElementById('on-yomi').textContent = d.on_readings.join('、') || '（なし）';
+                document.getElementById('kun-yomi').textContent = d.kun_readings.join('、') || '（なし）';
+                infoPanel.style.display = "block";
             }
         }
 
-        requestAnimationFrame(step);
-    });
+        // 全パスを順番に結合（文字ごとの区切りインデックスも記録）
+        const combinedPaths = allPathsData.flat();
+        const combinedLengths = measureLengths(combinedPaths);
+
+        // 2文字の場合: SVGを横2分割レイアウトで表示
+        const isTwoChars = chars.length === 2;
+
+        await runAnimationLoop(allPathsData, combinedLengths, isTwoChars, myId);
+
+    } catch (e) {
+        container.innerHTML = `<p style='color:#e74c3c;'>データが見つかりませんでした</p>`;
+    }
 }
 
-function wait(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-async function runAnimationLoop(pathsData, myId) {
+async function runAnimationLoop(allPathsData, allLengths, isTwoChars, myId) {
     const container = document.getElementById('svg-container');
-
-    // 事前にパス長を計算するため、一時SVGをDOMに追加して計測
-    const tempSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    tempSvg.setAttribute("viewBox", "0 0 109 109");
-    tempSvg.style.position = "absolute";
-    tempSvg.style.visibility = "hidden";
-    document.body.appendChild(tempSvg);
-
-    const pathLengths = pathsData.map(d => {
-        const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
-        p.setAttribute("d", d);
-        tempSvg.appendChild(p);
-        const len = p.getTotalLength();
-        return len;
-    });
-    document.body.removeChild(tempSvg);
 
     while (true) {
         if (myId !== currentAnimationId) return;
 
-        container.innerHTML = `<svg viewBox="0 0 109 109" id="kanjiSvg"></svg>`;
+        if (isTwoChars) {
+            // 横2分割: viewBox を 218x109 にして左右に並べる
+            container.innerHTML = `<svg viewBox="0 0 218 109" id="kanjiSvg" style="width:96%;height:96%;"></svg>`;
+        } else {
+            container.innerHTML = `<svg viewBox="0 0 109 109" id="kanjiSvg"></svg>`;
+        }
         const svg = document.getElementById('kanjiSvg');
 
-        for (let i = 0; i < pathsData.length; i++) {
-            if (myId !== currentAnimationId) return;
-
-            const length = pathLengths[i];
-            const duration = Math.max(600, length * 8); // 速度を適切に調整
-
-            // パス要素を生成し、最初から非表示（dashoffset=length）に設定
-            const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-            path.setAttribute("d", pathsData[i]);
-            path.setAttribute("class", "stroke");
-            path.style.strokeDasharray = length;
-            path.style.strokeDashoffset = length;
-            svg.appendChild(path);
-
-            // 番号ラベル
-            // getTotalLengthは表示SVG内の要素で行う
-            const startPoint = path.getPointAtLength(0);
-            const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
-            text.setAttribute("x", startPoint.x - 4);
-            text.setAttribute("y", startPoint.y - 4);
-            text.setAttribute("class", "order-number");
-            text.textContent = i + 1;
-            svg.appendChild(text);
-
-            // 1フレーム待ってからアニメーション開始（レイアウト確定を待つ）
-            await new Promise(r => requestAnimationFrame(r));
-            await animatePath(path, length, duration);
-
-            // 次の画へ進む前に少し間を置く
-            await wait(150);
+        // 中央線（2文字のとき）
+        if (isTwoChars) {
+            const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+            line.setAttribute("x1", "109"); line.setAttribute("y1", "0");
+            line.setAttribute("x2", "109"); line.setAttribute("y2", "109");
+            line.setAttribute("stroke", "#eee"); line.setAttribute("stroke-width", "1");
+            svg.appendChild(line);
         }
 
-        // 完成した字を確認する時間
+        let globalStrokeIndex = 0;
+
+        for (let charIdx = 0; charIdx < allPathsData.length; charIdx++) {
+            const pathsData = allPathsData[charIdx];
+            // 2文字目は x方向に109オフセット
+            const offsetX = isTwoChars ? charIdx * 109 : 0;
+
+            for (let i = 0; i < pathsData.length; i++) {
+                if (myId !== currentAnimationId) return;
+
+                const length = allLengths[globalStrokeIndex];
+                const duration = Math.max(600, length * 8);
+
+                const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                path.setAttribute("d", pathsData[i]);
+                path.setAttribute("class", "stroke");
+                path.style.strokeDasharray = length;
+                path.style.strokeDashoffset = length;
+
+                // グループでオフセット適用（getPointAtLengthがローカル座標を返すため、pathにtransformを持たせない）
+                const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+                if (offsetX > 0) g.setAttribute("transform", `translate(${offsetX}, 0)`);
+                g.appendChild(path);
+
+                // 番号ラベル（pathのローカル座標をそのまま使う）
+                const startPoint = path.getPointAtLength(0);
+                const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+                text.setAttribute("x", startPoint.x - 4);
+                text.setAttribute("y", startPoint.y - 4);
+                text.setAttribute("class", "order-number");
+                text.textContent = i + 1;
+                g.appendChild(text);
+
+                svg.appendChild(g);
+
+                await new Promise(r => requestAnimationFrame(r));
+                await animatePath(path, length, duration);
+                await wait(150);
+
+                globalStrokeIndex++;
+            }
+
+            // 文字と文字の間に少し間を置く
+            if (charIdx < allPathsData.length - 1) {
+                await wait(500);
+            }
+        }
+
         await wait(3000);
         if (myId !== currentAnimationId) return;
     }
